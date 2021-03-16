@@ -3,8 +3,8 @@ import { PaypalButton, PaypalButtonProps } from './index';
 
 import { storiesOf } from '@storybook/react';
 import { linkTo } from '@storybook/addon-links';
-import { CUSTOMER, PLAN } from '../../../lib/mock-data';
-import { PickPartial } from '../../../lib/types';
+import { CUSTOMER, PLAN } from '../../lib/mock-data';
+import { PickPartial } from '../../lib/types';
 
 const defaultApiClientOverrides = {
   apiCreateCustomer: async () => CUSTOMER,

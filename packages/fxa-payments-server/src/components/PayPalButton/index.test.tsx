@@ -3,8 +3,8 @@ import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/extend-expect';
 import { PaypalButton, PaypalButtonProps } from './index';
 
-import { PickPartial } from '../../../lib/types';
-import { CUSTOMER, PLAN } from '../../../lib/mock-data';
+import { PickPartial } from '../../lib/types';
+import { CUSTOMER, PLAN } from '../../lib/mock-data';
 
 const Subject = ({
   currencyCode = 'USD',

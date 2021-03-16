@@ -1,9 +1,10 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useContext, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 
-import * as apiClient from '../../../lib/apiClient';
-import { Customer } from '../../../store/types';
-import { SubscriptionCreateAuthServerAPIs } from '../SubscriptionCreate';
+import { AppContext } from '../../lib/AppContext';
+import * as apiClient from '../../lib/apiClient';
+import { Customer } from '../../store/types';
+import { SubscriptionCreateAuthServerAPIs } from '../../routes/Product/SubscriptionCreate';
 
 declare var paypal: {
   Buttons: {
@@ -12,14 +13,14 @@ declare var paypal: {
 };
 
 export type PaypalButtonProps = {
-  apiClientOverrides?: Partial<SubscriptionCreateAuthServerAPIs>;
   currencyCode: string;
   customer: Customer | null;
   idempotencyKey: string;
   priceId: string;
   refreshSubscriptions: () => void;
   setPaymentError: Function;
-  setTransactionInProgress: Function;
+  apiClientOverrides?: Partial<SubscriptionCreateAuthServerAPIs>;
+  setTransactionInProgress?: Function;
   ButtonBase?: React.ElementType;
 };
 
@@ -39,13 +40,13 @@ export const PaypalButtonBase =
     : null;
 
 export const PaypalButton = ({
-  apiClientOverrides,
   currencyCode,
   customer,
   idempotencyKey,
   priceId,
   refreshSubscriptions,
   setPaymentError,
+  apiClientOverrides,
   setTransactionInProgress,
   ButtonBase = PaypalButtonBase,
 }: PaypalButtonProps) => {
@@ -80,7 +81,7 @@ export const PaypalButton = ({
   const onApprove = useCallback(
     async (data: { orderID: string }) => {
       try {
-        setTransactionInProgress(true);
+        if (setTransactionInProgress) setTransactionInProgress(true);
         const { apiCapturePaypalPayment } = {
           ...apiClient,
           ...apiClientOverrides,
@@ -142,5 +143,46 @@ export const PaypalButton = ({
     </>
   );
 };
+
+export function usePaypalButtonSetup(
+  setPaypalScriptLoaded: Function,
+  paypalButtonBase?: React.FC<ButtonBaseProps>
+) {
+  const { config } = useContext(AppContext);
+
+  /* istanbul ignore next */
+  useEffect(() => {
+    if (!config.featureFlags.usePaypalUIByDefault) {
+      return;
+    }
+
+    if (paypalButtonBase) {
+      setPaypalScriptLoaded(true);
+      return;
+    }
+
+    // Read nonce from the fxa-paypal-csp-nonce meta tag
+    const cspNonceMetaTag = document?.querySelector(
+      'meta[name="fxa-paypal-csp-nonce"]'
+    );
+    const cspNonce = JSON.parse(
+      decodeURIComponent(cspNonceMetaTag?.getAttribute('content') || '""')
+    );
+
+    const script = document.createElement('script');
+    script.src = `${config.paypal.scriptUrl}/sdk/js?client-id=${config.paypal.clientId}&vault=true&commit=false&intent=capture&disable-funding=credit,card`;
+    // Pass the csp nonce to paypal
+    script.setAttribute('data-csp-nonce', cspNonce);
+    /* istanbul ignore next */
+    script.onload = () => {
+      setPaypalScriptLoaded(true);
+    };
+    /* istanbul ignore next */
+    script.onerror = () => {
+      throw new Error('Paypal SDK could not be loaded.');
+    };
+    document.body.appendChild(script);
+  }, []);
+}
 
 export default PaypalButton;
