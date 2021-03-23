@@ -23,6 +23,7 @@ const {
   click,
   createEmail,
   fillOutChangePassword,
+  fillOutDeleteAccount,
   fillOutEmailFirstSignUp,
   fillOutEmailFirstSignIn,
   fillOutSignInUnblock,
@@ -232,7 +233,6 @@ registerSuite('settings change email', {
       );
     },
 
-    /* Disabled - failing on CI but not locally. Followup bug #7863.
     'can change primary email, delete account': function () {
       return (
         this.remote
@@ -286,7 +286,6 @@ registerSuite('settings change email', {
           .then(testSuccessWasShown())
       );
     },
-    */
   },
 });
 
