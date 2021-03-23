@@ -250,6 +250,9 @@ registerSuite('settings change email', {
           // TODO: need to clear storage on the backbone side, #7855
           .then(clearBrowserState())
           .then(openPage(ENTER_EMAIL_URL, selectors.ENTER_EMAIL.HEADER))
+          // It seems the sign in page is shown, but the sign up page should be. Possibly related to not
+          // clearing backbone app storage when the react app deletes the account.
+          .then(click(selectors.SIGNIN_PASSWORD.LINK_USE_DIFFERENT))
           .then(fillOutEmailFirstSignUp(secondaryEmail, NEW_PASSWORD))
           .then(testElementExists(selectors.CONFIRM_SIGNUP_CODE.HEADER))
           .then(fillOutSignUpCode(secondaryEmail, 3))
