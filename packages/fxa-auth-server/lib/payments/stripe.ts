@@ -67,13 +67,14 @@ export const SUBSCRIPTION_UPDATE_TYPES = {
 };
 
 type BillingAddressOptions = {
-  city: string,
-  country: string,
-  line1: string,
-  line2: string,
-  postalCode: string,
-  state: string,
-}
+  city: string;
+  country: string;
+  line1: string;
+  line2: string;
+  postalCode: string;
+  state: string;
+};
+
 /**
  * Determine for two product metadata object's whether the new one
  * is a valid upgrade for the old one.
@@ -517,14 +518,14 @@ export class StripeHelper {
 
   /**
    * Update the customer object to add customer's PayPal billing address.
-   * 
-   * @param customer_id 
-   * @param city 
-   * @param country 
-   * @param line1 
-   * @param line2 
-   * @param postal_code 
-   * @param state 
+   *
+   * @param customer_id
+   * @param city
+   * @param country
+   * @param line1
+   * @param line2
+   * @param postal_code
+   * @param state
    */
   async updateCustomerBillingAddress(
     customer_id: string,
@@ -536,9 +537,9 @@ export class StripeHelper {
       line1: options.line1,
       line2: options.line2,
       postal_code: options.postalCode,
-      state: options.state
-    }
-    return this.stripe.customers.update(customer_id, {address});
+      state: options.state,
+    };
+    return this.stripe.customers.update(customer_id, { address });
   }
 
   /**
@@ -593,24 +594,31 @@ export class StripeHelper {
   }
 
   /**
-   * Fetch all open invoices for manually invoiced subscriptions.
+   * Fetch all open invoices for manually invoiced subscriptions that are active.
    *
-   * Note that created times for Stripe are in seconds since epoch.
+   * Note that created times for Stripe are in seconds since epoch and that
+   * invoices can be open for subscriptions that are cancelled, thus the extra
+   * subscription check before returning an invoice.
    *
    * @param created
    */
-  fetchOpenInvoices(
+  async *fetchOpenInvoices(
     created: Stripe.InvoiceListParams['created'],
     customerId?: string
   ) {
-    return this.stripe.invoices.list({
+    for await (const invoice of this.stripe.invoices.list({
       customer: customerId,
       limit: 100,
       collection_method: 'send_invoice',
       status: 'open',
       created,
-      expand: ['data.customer'],
-    });
+      expand: ['data.customer', 'data.subscription'],
+    })) {
+      const subscription = invoice.subscription as Stripe.Subscription;
+      if (ACTIVE_SUBSCRIPTION_STATUSES.includes(subscription.status)) {
+        yield invoice;
+      }
+    }
   }
 
   /**
@@ -1580,6 +1588,57 @@ export class StripeHelper {
     };
   }
 
+  async formatSubscriptionsForEmails(customer: Readonly<Stripe.Customer>) {
+    if (!customer.subscriptions) {
+      return [];
+    }
+
+    let formattedSubscptions = [];
+
+    for (const subscription of customer.subscriptions.data) {
+      if (ACTIVE_SUBSCRIPTION_STATUSES.includes(subscription.status)) {
+        if (!subscription.plan) {
+          throw error.internalValidationError(
+            'extractSourceDetailsForEmail',
+            customer,
+            new Error(
+              `Multiple plans for a subscription not supported: ${subscription.id}`
+            )
+          );
+        }
+
+        const plan = await this.expandResource(
+          subscription.plan,
+          PLAN_RESOURCE
+        );
+        const abbrevProduct = await this.expandAbbrevProductForPlan(plan);
+
+        const {
+          product_id: productId,
+          product_name: productName,
+        } = abbrevProduct;
+        const { id: planId, nickname: planName } = plan;
+        const productMetadata = this.mergeMetadata(plan, abbrevProduct);
+        const {
+          emailIconURL: planEmailIconURL = '',
+          downloadURL: planDownloadURL = '',
+        } = productMetadata;
+
+        formattedSubscptions.push({
+          productId,
+          productName,
+          planId,
+          planName,
+          planEmailIconURL,
+          planDownloadURL,
+          productMetadata,
+        });
+      }
+    }
+
+    return formattedSubscptions;
+  }
+
   async extractCardDetails({ charge }: { charge: Stripe.Charge | null }) {
     let lastFour: string | null = null;
     let cardType: string | null = null;
@@ -1629,48 +1688,7 @@ export class StripeHelper {
       );
     }
 
-    let subscriptions = [];
-
-    for (const subscription of customer.subscriptions.data) {
-      if (ACTIVE_SUBSCRIPTION_STATUSES.includes(subscription.status)) {
-        if (!subscription.plan) {
-          throw error.internalValidationError(
-            'extractSourceDetailsForEmail',
-            customer,
-            new Error(
-              `Multiple plans for a subscription not supported: ${subscription.id}`
-            )
-          );
-        }
-
-        const plan = await this.expandResource(
-          subscription.plan,
-          PLAN_RESOURCE
-        );
-        const abbrevProduct = await this.expandAbbrevProductForPlan(plan);
-
-        const {
-          product_id: productId,
-          product_name: productName,
-        } = abbrevProduct;
-        const { id: planId, nickname: planName } = plan;
-        const productMetadata = this.mergeMetadata(plan, abbrevProduct);
-        const {
-          emailIconURL: planEmailIconURL = '',
-          downloadURL: planDownloadURL = '',
-        } = productMetadata;
-
-        subscriptions.push({
-          productId,
-          productName,
-          planId,
-          planName,
-          planEmailIconURL,
-          planDownloadURL,
-          productMetadata,
-        });
-      }
-    }
+    const subscriptions = await this.formatSubscriptionsForEmails(customer);
 
     if (subscriptions.length === 0) {
       throw error.missingSubscriptionForSourceError(
@@ -1899,7 +1917,7 @@ export class StripeHelper {
     const {
       total: invoiceTotalInCents,
       currency: invoiceTotalCurrency,
-      next_payment_attempt: nextInvoiceDate,
+      created: nextInvoiceDate,
     } = upcomingInvoice;
 
     return {
@@ -1914,9 +1932,6 @@ export class StripeHelper {
       invoiceTotalCurrency,
       cardType,
       lastFour,
-      // TODO: According to Stripe, this value will be null for invoices where collection_method=send_invoice
-      // Our subscriptions use collection_method=charge_automatically - so this shouldn't happen?
-      // Do trial subscriptions run into this?
       nextInvoiceDate: nextInvoiceDate
         ? new Date(nextInvoiceDate * 1000)
         : null,
